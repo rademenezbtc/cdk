@@ -27,6 +27,8 @@ message BlindSignResponse {
 
 message BlindedMessages {
   repeated BlindedMessage blinded_messages = 1;
+  // What the signatures are for; absent from older clients
+  OperationContext context = 2;
 }
 
 // Represents a blinded message
@@ -102,6 +104,41 @@ message CurrencyUnit {
 
 message Proofs {
   repeated Proof proof = 1;
+  // The operation these proofs are inputs to; absent from older clients
+  OperationContext context = 2;
+}
+
+// What a blind signature or proof check is for, so a signatory can enforce its own rules
+message OperationContext {
+  oneof operation {
+    MintOperation mint = 1;
+    SwapOperation swap = 2;
+    MeltOperation melt = 3;
+  }
+}
+
+message MintQuoteInfo {
+  string quote_id = 1;
+  uint64 amount_paid = 2;
+  uint64 amount_issued = 3;
+  string request = 4;
+}
+
+message MintOperation {
+  repeated MintQuoteInfo quotes = 1;
+}
+
+message SwapOperation {
+  // Set when signing outputs; empty for the proof check
+  repeated Proof inputs = 1;
+}
+
+message MeltOperation {
+  string quote_id = 1;
+  uint64 amount = 2;
+  string request = 3;
+  // Set when signing change; empty for the proof check
+  repeated Proof inputs = 4;
 }
 
 message Proof {

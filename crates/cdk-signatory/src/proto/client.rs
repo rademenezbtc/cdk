@@ -12,7 +12,9 @@ use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
 use crate::proto;
 use crate::proto::signatory_client::SignatoryClient;
-use crate::signatory::{RotateKeyArguments, Signatory, SignatoryKeySet, SignatoryKeysets};
+use crate::signatory::{
+    OperationContext, RotateKeyArguments, Signatory, SignatoryKeySet, SignatoryKeysets,
+};
 
 /// Largest delay between keyset subscription reconnect attempts.
 const KEYSET_RECONNECT_MAX_BACKOFF: Duration = Duration::from_secs(30);
@@ -224,11 +226,26 @@ impl Signatory for SignatoryRpcClient {
 
     #[tracing::instrument(skip_all)]
     async fn blind_sign(&self, request: Vec<BlindedMessage>) -> Result<Vec<BlindSignature>, Error> {
+        self.blind_sign_with_context(request, None).await
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn verify_proofs(&self, proofs: Vec<Proof>) -> Result<(), Error> {
+        self.verify_proofs_with_context(proofs, None).await
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn blind_sign_with_context(
+        &self,
+        request: Vec<BlindedMessage>,
+        context: Option<OperationContext>,
+    ) -> Result<Vec<BlindSignature>, Error> {
         let req = super::BlindedMessages {
             blinded_messages: request
                 .into_iter()
                 .map(|blind_message| blind_message.into())
                 .collect(),
+            context: context.map(|c| c.into()),
         };
 
         self.client
@@ -246,8 +263,13 @@ impl Signatory for SignatoryRpcClient {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn verify_proofs(&self, proofs: Vec<Proof>) -> Result<(), Error> {
-        let req: super::Proofs = proofs.into();
+    async fn verify_proofs_with_context(
+        &self,
+        proofs: Vec<Proof>,
+        context: Option<OperationContext>,
+    ) -> Result<(), Error> {
+        let mut req: super::Proofs = proofs.into();
+        req.context = context.map(|c| c.into());
         self.client
             .clone()
             .verify_proofs(tonic::Request::new(req))

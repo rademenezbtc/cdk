@@ -1,5 +1,5 @@
 use cdk_common::mint::Operation;
-use cdk_common::nuts::{BlindSignature, BlindedMessage};
+use cdk_common::nuts::{BlindSignature, BlindedMessage, Proofs};
 use cdk_common::PublicKey;
 use uuid::Uuid;
 
@@ -17,6 +17,8 @@ pub struct Initial {
 /// Only the `sign_outputs` method is available.
 pub struct SetupComplete {
     pub blinded_messages: Vec<BlindedMessage>,
+    /// The swap's input proofs, passed to the signatory as operation context
+    pub inputs: Proofs,
     pub ys: Vec<PublicKey>,
     pub operation: Operation,
     pub fee_breakdown: crate::fees::ProofsFeeBreakdown,

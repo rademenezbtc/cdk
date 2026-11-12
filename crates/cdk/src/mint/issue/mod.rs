@@ -13,6 +13,7 @@ use cdk_common::{
     MintQuoteBolt11Response, MintQuoteBolt12Response, MintQuoteOnchainResponse, MintQuoteState,
     MintRequest, MintResponse, NotificationPayload, PaymentMethod, PublicKey,
 };
+use cdk_signatory::signatory::{MintQuoteContext, OperationContext};
 use tracing::instrument;
 
 use crate::mint::verification::{validate_custom_payment_method, MAX_REQUEST_FIELD_LEN};
@@ -923,7 +924,21 @@ impl Mint {
             }
 
             // Phase 4: Generate blind signatures (stateless, safe outside transaction)
-            let all_blind_signatures = self.blind_sign(input.outputs().to_vec()).await?;
+            let context = OperationContext::Mint {
+                quotes: quote_entries
+                    .iter()
+                    .filter_map(|entry| quote_map.get(&entry.quote_id))
+                    .map(|quote| MintQuoteContext {
+                        quote_id: quote.id.to_string(),
+                        amount_paid: quote.amount_paid().into(),
+                        amount_issued: quote.amount_issued().into(),
+                        request: quote.request.clone(),
+                    })
+                    .collect(),
+            };
+            let all_blind_signatures = self
+                .blind_sign_with_context(input.outputs().to_vec(), Some(context))
+                .await?;
             let blinded_secrets = input
                 .outputs()
                 .iter()

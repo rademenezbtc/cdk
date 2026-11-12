@@ -3318,6 +3318,7 @@ async fn test_stale_melt_cleanup_observes_completed_finalization() {
         payment_result.total_spent,
         stale_request.inputs_fee,
         stale_request.change_outputs,
+        None,
     )
     .await
     .unwrap();

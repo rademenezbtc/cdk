@@ -2,7 +2,7 @@ use cdk_common::SpendingConditionVerification;
 use swap_saga::SwapSaga;
 use tracing::instrument;
 
-use super::{Mint, SwapRequest, SwapResponse};
+use super::{Mint, OperationContext, SwapRequest, SwapResponse};
 use crate::Error;
 
 pub mod swap_saga;
@@ -35,10 +35,16 @@ impl Mint {
             }
 
             // Verify inputs (cryptographic verification, no DB needed)
-            let input_verification = self.verify_inputs(input_proofs).await.map_err(|err| {
-                tracing::debug!("Input verification failed: {:?}", err);
-                err
-            })?;
+            let input_verification = self
+                .verify_inputs_with_context(
+                    input_proofs,
+                    Some(OperationContext::Swap { inputs: Vec::new() }),
+                )
+                .await
+                .map_err(|err| {
+                    tracing::debug!("Input verification failed: {:?}", err);
+                    err
+                })?;
 
             // Verify spending conditions (NUT-10/NUT-11/NUT-14), i.e. P2PK
             // and HTLC (including SIGALL)

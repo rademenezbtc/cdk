@@ -164,6 +164,7 @@ impl From<Vec<cdk_common::Proof>> for Proofs {
     fn from(value: Vec<cdk_common::Proof>) -> Self {
         Proofs {
             proof: value.into_iter().map(|x| x.into()).collect(),
+            context: None,
         }
     }
 }
@@ -198,6 +199,80 @@ impl TryInto<cdk_common::Proof> for Proof {
             witness: None,
             dleq: None,
             p2pk_e: None,
+        })
+    }
+}
+
+fn proofs_from_proto(proofs: Vec<Proof>) -> Result<Vec<cdk_common::Proof>, Status> {
+    proofs.into_iter().map(|p| p.try_into()).collect()
+}
+
+impl From<crate::signatory::OperationContext> for OperationContext {
+    fn from(value: crate::signatory::OperationContext) -> Self {
+        use crate::signatory::OperationContext as Ctx;
+
+        let operation = match value {
+            Ctx::Mint { quotes } => operation_context::Operation::Mint(MintOperation {
+                quotes: quotes
+                    .into_iter()
+                    .map(|q| MintQuoteInfo {
+                        quote_id: q.quote_id,
+                        amount_paid: q.amount_paid.into(),
+                        amount_issued: q.amount_issued.into(),
+                        request: q.request,
+                    })
+                    .collect(),
+            }),
+            Ctx::Swap { inputs } => operation_context::Operation::Swap(SwapOperation {
+                inputs: inputs.into_iter().map(|p| p.into()).collect(),
+            }),
+            Ctx::Melt {
+                quote_id,
+                amount,
+                request,
+                inputs,
+            } => operation_context::Operation::Melt(MeltOperation {
+                quote_id,
+                amount: amount.into(),
+                request,
+                inputs: inputs.into_iter().map(|p| p.into()).collect(),
+            }),
+        };
+        Self {
+            operation: Some(operation),
+        }
+    }
+}
+
+impl TryInto<Option<crate::signatory::OperationContext>> for OperationContext {
+    type Error = Status;
+
+    fn try_into(self) -> Result<Option<crate::signatory::OperationContext>, Self::Error> {
+        use crate::signatory::{MintQuoteContext, OperationContext as Ctx};
+
+        Ok(match self.operation {
+            None => None,
+            Some(operation_context::Operation::Mint(mint)) => Some(Ctx::Mint {
+                quotes: mint
+                    .quotes
+                    .into_iter()
+                    .map(|q| MintQuoteContext {
+                        quote_id: q.quote_id,
+                        amount_paid: q.amount_paid.into(),
+                        amount_issued: q.amount_issued.into(),
+                        request: q.request,
+                    })
+                    .collect(),
+            }),
+            Some(operation_context::Operation::Swap(swap)) => Some(Ctx::Swap {
+                inputs: proofs_from_proto(swap.inputs)?,
+            }),
+            Some(operation_context::Operation::Melt(melt)) => Some(Ctx::Melt {
+                quote_id: melt.quote_id,
+                amount: melt.amount.into(),
+                request: melt.request,
+                inputs: proofs_from_proto(melt.inputs)?,
+            }),
         })
     }
 }
@@ -429,5 +504,60 @@ mod tests {
         .unwrap();
 
         assert_eq!(common, cdk_common::CurrencyUnit::Custom("badcoin".into()));
+    }
+}
+
+#[cfg(test)]
+mod context_tests {
+    use std::str::FromStr;
+
+    use cdk_common::secret::Secret;
+    use cdk_common::{Amount, Id, SecretKey};
+
+    use super::OperationContext as ProtoContext;
+    use crate::signatory::{MintQuoteContext, OperationContext};
+
+    fn proof() -> cdk_common::Proof {
+        cdk_common::Proof {
+            amount: Amount::from(8),
+            keyset_id: Id::from_str("009a1f293253e41e").expect("valid id"),
+            secret: Secret::new("secret"),
+            c: SecretKey::generate().public_key(),
+            witness: None,
+            dleq: None,
+            p2pk_e: None,
+        }
+    }
+
+    #[test]
+    fn operation_context_roundtrip() {
+        let contexts = [
+            OperationContext::Mint {
+                quotes: vec![MintQuoteContext {
+                    quote_id: "q1".to_string(),
+                    amount_paid: Amount::from(1000),
+                    amount_issued: Amount::from(0),
+                    request: "lnbc...".to_string(),
+                }],
+            },
+            OperationContext::Swap {
+                inputs: vec![proof()],
+            },
+            OperationContext::Melt {
+                quote_id: "q2".to_string(),
+                amount: Amount::from(300),
+                request: "lnbc...".to_string(),
+                inputs: vec![proof()],
+            },
+        ];
+        for ctx in contexts {
+            let proto: ProtoContext = ctx.clone().into();
+            let back: Option<OperationContext> = proto.try_into().expect("converts back");
+            assert_eq!(back, Some(ctx));
+        }
+        let empty: Option<OperationContext> = ProtoContext { operation: None }
+            .try_into()
+            .expect("converts");
+        assert_eq!(empty, None);
     }
 }

@@ -10,6 +10,7 @@ use tracing::instrument;
 use self::compensation::{CompensatingAction, RemoveSwapSetup};
 use self::state::{Initial, SetupComplete, Signed};
 use crate::mint::subscription::PubSubManager;
+use crate::mint::OperationContext;
 use crate::Mint;
 
 pub mod compensation;
@@ -256,6 +257,7 @@ impl<'a> SwapSaga<'a, Initial> {
             operation_id: self.operation_id,
             state_data: SetupComplete {
                 blinded_messages: blinded_messages_vec,
+                inputs: input_proofs.clone(),
                 ys,
                 operation,
                 fee_breakdown,
@@ -286,9 +288,12 @@ impl<'a> SwapSaga<'a, SetupComplete> {
     /// - Propagates any errors from the blind signing operation
     #[instrument(skip_all)]
     pub async fn sign_outputs(self) -> Result<SwapSaga<'a, Signed>, Error> {
+        let context = OperationContext::Swap {
+            inputs: self.state_data.inputs.clone(),
+        };
         match self
             .mint
-            .blind_sign(self.state_data.blinded_messages.clone())
+            .blind_sign_with_context(self.state_data.blinded_messages.clone(), Some(context))
             .await
         {
             Ok(signatures) => {

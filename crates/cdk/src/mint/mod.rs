@@ -15,7 +15,7 @@ pub use cdk_common::quote_id::QuoteId;
 use cdk_common::stream::{BackoffPolicy, SupervisedStream};
 #[cfg(feature = "prometheus")]
 use cdk_prometheus::MintMetricGuard;
-use cdk_signatory::signatory::{Signatory, SignatoryKeySet, SignatoryKeysets};
+use cdk_signatory::signatory::{OperationContext, Signatory, SignatoryKeySet, SignatoryKeysets};
 use futures::{Stream, StreamExt};
 use nut21::ProtectedEndpoint;
 use subscription::PubSubManager;
@@ -1322,6 +1322,16 @@ impl Mint {
         &self,
         blinded_message: Vec<BlindedMessage>,
     ) -> Result<Vec<BlindSignature>, Error> {
+        self.blind_sign_with_context(blinded_message, None).await
+    }
+
+    /// Blind sign, telling the signatory which operation the outputs belong to
+    #[tracing::instrument(skip_all)]
+    pub async fn blind_sign_with_context(
+        &self,
+        blinded_message: Vec<BlindedMessage>,
+        context: Option<OperationContext>,
+    ) -> Result<Vec<BlindSignature>, Error> {
         #[cfg(test)]
         {
             if crate::test_helpers::mint::should_fail_in_test() {
@@ -1332,7 +1342,10 @@ impl Mint {
         #[cfg(feature = "prometheus")]
         let metrics = MintMetricGuard::new("blind_sign");
 
-        let result = self.signatory.blind_sign(blinded_message).await;
+        let result = self
+            .signatory
+            .blind_sign_with_context(blinded_message, context)
+            .await;
 
         #[cfg(feature = "prometheus")]
         {
@@ -1345,12 +1358,25 @@ impl Mint {
     /// Verify [`Proof`] meets conditions and is signed
     #[tracing::instrument(skip_all)]
     pub async fn verify_proofs(&self, proofs: Proofs) -> Result<(), Error> {
+        self.verify_proofs_with_context(proofs, None).await
+    }
+
+    /// Verify proofs, telling the signatory which operation they are inputs to
+    #[tracing::instrument(skip_all)]
+    pub async fn verify_proofs_with_context(
+        &self,
+        proofs: Proofs,
+        context: Option<OperationContext>,
+    ) -> Result<(), Error> {
         // This ignore P2PK and HTLC, as all NUT-10 spending conditions are
         // checked elsewhere.
         #[cfg(feature = "prometheus")]
         let metrics = MintMetricGuard::new("verify_proofs");
 
-        let result = self.signatory.verify_proofs(proofs).await;
+        let result = self
+            .signatory
+            .verify_proofs_with_context(proofs, context)
+            .await;
 
         #[cfg(feature = "prometheus")]
         {

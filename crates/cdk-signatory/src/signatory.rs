@@ -11,8 +11,55 @@ use cdk_common::error::Error;
 use cdk_common::mint::MintKeySetInfo;
 use cdk_common::nuts::nut02::KeySetVersion;
 use cdk_common::{
-    BlindSignature, BlindedMessage, CurrencyUnit, Id, KeySet, Keys, MintKeySet, Proof, PublicKey,
+    Amount, BlindSignature, BlindedMessage, CurrencyUnit, Id, KeySet, Keys, MintKeySet, Proof,
+    PublicKey,
 };
+
+/// What a blind signature or proof check is for.
+///
+/// The mint passes this alongside [`Signatory::blind_sign_with_context`] and
+/// [`Signatory::verify_proofs_with_context`], so a signatory that does not trust the mint host
+/// (for example a threshold signer) can check that the outputs it signs are backed: that a swap's
+/// outputs do not exceed its inputs, that inputs are not spent twice, or that a melt's change is
+/// bounded. Signatories that hold the keys next to the mint can ignore it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OperationContext {
+    /// Issuing ecash for paid mint quotes (NUT-04)
+    Mint {
+        /// The quotes this issuance draws on
+        quotes: Vec<MintQuoteContext>,
+    },
+    /// Swapping inputs for outputs (NUT-03)
+    Swap {
+        /// The swap's inputs. Set when signing the outputs; empty for the proof check, where the
+        /// proofs being checked are the inputs.
+        inputs: Vec<Proof>,
+    },
+    /// Melting inputs to pay a request (NUT-05); signing covers the change outputs (NUT-08)
+    Melt {
+        /// Melt quote id
+        quote_id: String,
+        /// Amount the quote pays out, in the keyset's unit, excluding fees
+        amount: Amount,
+        /// The payment request being paid
+        request: String,
+        /// The melt's inputs. Set when signing change; empty for the proof check.
+        inputs: Vec<Proof>,
+    },
+}
+
+/// A mint quote that an issuance draws on
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MintQuoteContext {
+    /// Mint quote id
+    pub quote_id: String,
+    /// Total amount paid to the quote so far, in the keyset's unit
+    pub amount_paid: Amount,
+    /// Total amount already issued against the quote, in the keyset's unit
+    pub amount_issued: Amount,
+    /// The quote's payment request (for example a bolt11 invoice)
+    pub request: String,
+}
 
 /// RotateKeyArguments
 ///
@@ -152,6 +199,30 @@ pub trait Signatory {
 
     /// Verify [`Proof`] meets conditions and is signed by the mint (ignores P2PK/HTLC signatures"
     async fn verify_proofs(&self, proofs: Vec<Proof>) -> Result<(), Error>;
+
+    /// Blind sign messages, with the operation they belong to.
+    ///
+    /// The default ignores the context and calls [`Signatory::blind_sign`].
+    async fn blind_sign_with_context(
+        &self,
+        blinded_messages: Vec<BlindedMessage>,
+        context: Option<OperationContext>,
+    ) -> Result<Vec<BlindSignature>, Error> {
+        let _ = context;
+        self.blind_sign(blinded_messages).await
+    }
+
+    /// Verify proofs, with the operation they are inputs to.
+    ///
+    /// The default ignores the context and calls [`Signatory::verify_proofs`].
+    async fn verify_proofs_with_context(
+        &self,
+        proofs: Vec<Proof>,
+        context: Option<OperationContext>,
+    ) -> Result<(), Error> {
+        let _ = context;
+        self.verify_proofs(proofs).await
+    }
 
     /// Retrieve the list of all mint keysets
     async fn keysets(&self) -> Result<SignatoryKeysets, Error>;

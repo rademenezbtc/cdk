@@ -10,11 +10,11 @@ use cdk_common::amount::MSAT_IN_SAT;
 use cdk_common::database::mint::Acquired;
 use cdk_common::database::{self, DynMintDatabase, DynMintTransaction};
 use cdk_common::mint::{self as mint_types};
-use cdk_common::nuts::{BlindSignature, BlindedMessage, MeltQuoteState, Proofs, State};
+use cdk_common::nuts::{BlindSignature, BlindedMessage, MeltQuoteState, Proof, Proofs, State};
 use cdk_common::{Amount, CurrencyUnit, Error, PublicKey, QuoteId};
 #[cfg(feature = "prometheus")]
 use cdk_prometheus::METRICS;
-use cdk_signatory::signatory::SignatoryKeySet;
+use cdk_signatory::signatory::{OperationContext, SignatoryKeySet};
 
 use crate::mint::subscription::PubSubManager;
 use crate::mint::MeltQuote;
@@ -486,6 +486,17 @@ async fn begin_melt_change_without_signatures(
 /// - Change calculation fails
 /// - Blind signing fails
 /// - Database operations fail
+/// Operation context for the signatory: what a melt pays and, when signing change, its inputs
+pub(crate) fn melt_operation_context(quote: &MeltQuote, inputs: Vec<Proof>) -> OperationContext {
+    OperationContext::Melt {
+        quote_id: quote.id.to_string(),
+        amount: quote.amount().into(),
+        request: quote.request.to_string(),
+        inputs,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn process_melt_change(
     mint: &super::super::Mint,
     db: &DynMintDatabase,
@@ -494,6 +505,7 @@ pub(super) async fn process_melt_change(
     total_spent: Amount<CurrencyUnit>,
     inputs_fee: Amount<CurrencyUnit>,
     change_outputs: Vec<BlindedMessage>,
+    context: Option<OperationContext>,
 ) -> Result<MeltChangeResult, Error> {
     let change_target: Amount = match inputs_amount
         .checked_sub(&total_spent)
@@ -559,7 +571,7 @@ pub(super) async fn process_melt_change(
 
     // External call: sign change outputs (no DB transaction held)
     let change_sigs = mint
-        .blind_sign(blinded_messages_to_sign.clone())
+        .blind_sign_with_context(blinded_messages_to_sign.clone(), context)
         .await
         .inspect_err(|err| {
             tracing::error!(
@@ -1007,6 +1019,7 @@ pub async fn finalize_melt_quote(
         total_spent.clone(),
         melt_request_info.inputs_fee.clone(),
         melt_request_info.change_outputs.clone(),
+        Some(melt_operation_context(&quote, proofs.clone())),
     )
     .await?;
 

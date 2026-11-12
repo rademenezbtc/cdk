@@ -60,13 +60,21 @@ where
         let metadata = request.metadata();
         let signatory = self.load_signatory(metadata).await?;
 
-        let blinded_messages = request.into_inner().blinded_messages;
+        let request = request.into_inner();
+        let context = match request.context {
+            Some(context) => context.try_into()?,
+            None => None,
+        };
+        let blinded_messages = request.blinded_messages;
         let mut converted_messages = Vec::with_capacity(blinded_messages.len());
         for msg in blinded_messages {
             converted_messages.push(msg.try_into()?);
         }
 
-        let result = match signatory.blind_sign(converted_messages).await {
+        let result = match signatory
+            .blind_sign_with_context(converted_messages, context)
+            .await
+        {
             Ok(blind_signatures) => proto::BlindSignResponse {
                 sigs: Some(proto::BlindSignatures {
                     blind_signatures: blind_signatures
@@ -93,14 +101,22 @@ where
         let metadata = request.metadata();
         let signatory = self.load_signatory(metadata).await?;
 
-        let proofs = request.into_inner().proof;
+        let request = request.into_inner();
+        let context = match request.context {
+            Some(context) => context.try_into()?,
+            None => None,
+        };
+        let proofs = request.proof;
 
         let mut converted_proofs = Vec::with_capacity(proofs.len());
         for p in proofs {
             converted_proofs.push(p.try_into()?);
         }
 
-        let result = match signatory.verify_proofs(converted_proofs).await {
+        let result = match signatory
+            .verify_proofs_with_context(converted_proofs, context)
+            .await
+        {
             Ok(()) => proto::BooleanResponse {
                 success: true,
                 ..Default::default()

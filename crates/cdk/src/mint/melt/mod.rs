@@ -893,8 +893,6 @@ impl Mint {
             }
         }
 
-        let verification = self.verify_inputs(melt_request.inputs()).await?;
-
         // Fetch the quote to get payment_method for operation tracking
         let quote_id = melt_request.quote().clone();
         let quote = self
@@ -902,6 +900,13 @@ impl Mint {
             .get_melt_quote(&quote_id)
             .await?
             .ok_or(Error::UnknownQuote)?;
+
+        let verification = self
+            .verify_inputs_with_context(
+                melt_request.inputs(),
+                Some(shared::melt_operation_context(&quote, Vec::new())),
+            )
+            .await?;
 
         // Keep status checks and payment events behind the live dispatch for
         // this quote. Without this process-local guard, a check could observe

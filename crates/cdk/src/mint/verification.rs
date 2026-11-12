@@ -6,7 +6,7 @@ use cdk_common::{
 };
 use tracing::instrument;
 
-use super::{Error, Mint};
+use super::{Error, Mint, OperationContext};
 
 /// Maximum allowed length in bytes for proof secret or witness content
 const MAX_PROOF_CONTENT_LEN: usize = 1024;
@@ -216,6 +216,18 @@ impl Mint {
     /// **NOTE: This does not check if inputs have been spent
     #[instrument(skip_all)]
     pub async fn verify_inputs(&self, inputs: &Proofs) -> Result<Verification, Error> {
+        self.verify_inputs_with_context(inputs, None).await
+    }
+
+    /// Verifies inputs, telling the signatory which operation they are inputs to
+    ///
+    /// See [`Mint::verify_inputs`].
+    #[instrument(skip_all)]
+    pub async fn verify_inputs_with_context(
+        &self,
+        inputs: &Proofs,
+        context: Option<OperationContext>,
+    ) -> Result<Verification, Error> {
         // Check max inputs limit
         let inputs_count = inputs.len();
         if inputs_count > self.max_inputs {
@@ -271,7 +283,8 @@ impl Mint {
 
         let amount = inputs.total_amount()?.with_unit(unit);
 
-        self.verify_proofs(inputs.clone()).await?;
+        self.verify_proofs_with_context(inputs.clone(), context)
+            .await?;
 
         Ok(Verification { amount })
     }
